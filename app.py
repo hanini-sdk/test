@@ -229,21 +229,34 @@ def render_mermaid(mermaid_code, diagram_id="mermaid-diagram"):
     """
     Rend un diagramme Mermaid avec HTML/JS.
     """
-    # Nettoyer le code
+    # Nettoyer le code (retirer les styles non supportés)
     clean_code = mermaid_code.strip()
+    
+    # Retirer les lignes de style qui peuvent causer des erreurs
+    lines = clean_code.split('\n')
+    filtered_lines = [
+        line for line in lines 
+        if not line.strip().startswith('style ')
+    ]
+    clean_code = '\n'.join(filtered_lines)
+    
+    # Échapper les caractères spéciaux pour le HTML
+    clean_code = clean_code.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
     
     html = f"""
     <div class="mermaid-container">
         <div id="{diagram_id}" class="mermaid">
-            {clean_code}
+{clean_code}
         </div>
     </div>
     
     <script type="module">
         import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        
         mermaid.initialize({{ 
             startOnLoad: true,
             theme: 'default',
+            securityLevel: 'loose',
             themeVariables: {{
                 primaryColor: '#58a6ff',
                 primaryTextColor: '#0d1117',
@@ -259,6 +272,17 @@ def render_mermaid(mermaid_code, diagram_id="mermaid-diagram"):
                 fontFamily: 'ui-monospace, monospace'
             }}
         }});
+        
+        // Gérer les erreurs de rendu
+        try {{
+            mermaid.run({{
+                nodes: document.querySelectorAll('#{diagram_id}')
+            }});
+        }} catch(err) {{
+            console.error('Erreur Mermaid:', err);
+            document.getElementById('{diagram_id}').innerHTML = 
+                '<p style="color: red; padding: 20px;">Erreur de rendu du diagramme. Voir le code source ci-dessous.</p>';
+        }}
     </script>
     """
     
@@ -377,14 +401,49 @@ def main():
     docs = load_documentation()
     
     if not docs:
+        # Message d'erreur stylisé
         st.error("❌ Aucune documentation trouvée dans `outputs/docs/`")
-        st.info("""
-        💡 **Pour générer la documentation :**
         
+        st.markdown("""
+        ### 💡 Pour générer la documentation :
+        
+        **Étape 1 : Configurer Gemini API**
         ```bash
-        python main.py /path/to/project
+        export GEMINI_API_KEY="votre_clé_api"
         ```
+        Obtenez votre clé sur : [Google AI Studio](https://makersuite.google.com/app/apikey)
+        
+        **Étape 2 : Générer la documentation**
+        ```bash
+        python main.py /path/to/votre/projet
+        
+        # Exemple : analyser le projet courant
+        python main.py .
+        ```
+        
+        **Étape 3 : Actualiser cette page**
+        Appuyez sur `R` ou rafraîchissez le navigateur
         """)
+        
+        # Afficher un exemple de ce qui sera généré
+        with st.expander("📖 Aperçu de ce qui sera généré"):
+            st.markdown("""
+            Après avoir généré la documentation, vous verrez :
+            
+            - **📋 Architecture globale**
+              - Vue d'ensemble du projet
+              - Features principales détectées automatiquement
+              - Diagramme de workflow (Mermaid)
+              - Modules principaux et leurs dépendances
+            
+            - **🏛️ Documentation des classes**
+              - Classes principales du projet
+              - Rôles et responsabilités
+              - Méthodes importantes
+              - Exemples d'utilisation
+            """)
+        
+        st.info("🔄 Cette page se mettra à jour automatiquement une fois la documentation générée.")
         return
     
     # Sidebar - Navigation
