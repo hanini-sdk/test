@@ -7,6 +7,7 @@ import time
 
 from ortools.sat.python import cp_model
 
+from .grande_echelle import reconcilier_par_blocs
 from .modele import construire_modele
 from .pretraitement import apparier_exacts, composantes_connexes
 from .types import (
@@ -84,7 +85,7 @@ def resoudre_composante(
     compte_rendu.nb_reconcilies = sum(len(g.membres) for g in groupes)
     optimal = compte_rendu.statut == "OPTIMAL"
     log.log(
-        logging.INFO if optimal else logging.WARNING,
+        logging.DEBUG if optimal else logging.WARNING,
         "Composante %d : %s — %d/%d mouvement(s) réconcilié(s) en %d groupe(s) (%.1f s)%s",
         numero, compte_rendu.statut, compte_rendu.nb_reconcilies, len(mouvements),
         len(groupes), compte_rendu.duree,
@@ -99,17 +100,51 @@ def reconcilier(mouvements: list[Mouvement], params: Parametres | None = None) -
     debut = time.perf_counter()
 
     groupes, restants = apparier_exacts(mouvements, params.window_days)
+    composantes = composantes_connexes(restants, params.window_days)
+    petites = [c for c in composantes if len(c) <= params.seuil_exact]
+    grosses = [c for c in composantes if len(c) > params.seuil_exact]
     comptes_rendus: list[StatutComposante] = []
-    for numero, composante in enumerate(
-        composantes_connexes(restants, params.window_days), start=1
-    ):
-        nouveaux, compte_rendu = resoudre_composante(composante, params, numero)
+
+    if grosses:
+        log.info(
+            "%d grosse(s) composante(s) (> %d mouvements, %d au total) : résolution par blocs",
+            len(grosses), params.seuil_exact, sum(map(len, grosses)),
+        )
+        debut_blocs = time.perf_counter()
+        groupes_blocs, reste = reconcilier_par_blocs([m for c in grosses for m in c], params)
+        groupes.extend(groupes_blocs)
+        duree_blocs = time.perf_counter() - debut_blocs
+        reconcilies = {m.index for g in groupes_blocs for m in g.membres}
+        composante_de = {m.index: n for n, c in enumerate(grosses) for m in c}
+        groupes_par_composante = [0] * len(grosses)
+        for g in groupes_blocs:
+            groupes_par_composante[composante_de[g.membres[0].index]] += 1
+        for n, c in enumerate(grosses):
+            nb_debits = sum(1 for m in c if m.est_debit)
+            comptes_rendus.append(StatutComposante(
+                numero=0, nb_mouvements=len(c), nb_debits=nb_debits,
+                nb_credits=len(c) - nb_debits, statut="HEURISTIQUE",
+                nb_reconcilies=sum(1 for m in c if m.index in reconcilies),
+                nb_groupes=groupes_par_composante[n],
+                duree=duree_blocs * len(c) / max(1, sum(map(len, grosses))),
+            ))
+        # Les restes devenus petits passent encore par le modèle exact.
+        petites += [c for c in composantes_connexes(reste, params.window_days)
+                    if len(c) <= params.seuil_exact]
+
+    for composante in petites:
+        nouveaux, compte_rendu = resoudre_composante(
+            composante, params, numero=len(comptes_rendus) + 1
+        )
         groupes.extend(nouveaux)
         comptes_rendus.append(compte_rendu)
+    for numero, compte_rendu in enumerate(comptes_rendus, start=1):
+        compte_rendu.numero = numero
 
     groupes.sort(key=lambda g: min((m.jour, m.index) for m in g.membres))
+    largeur = max(4, len(str(len(groupes))))
     for numero, g in enumerate(groupes, start=1):
-        g.groupe_id = f"G{numero:04d}"
+        g.groupe_id = f"G{numero:0{largeur}d}"
 
     verifier_solution(groupes, params)
 

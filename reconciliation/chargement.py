@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import logging
 import unicodedata
 from pathlib import Path
@@ -23,6 +24,10 @@ ALIAS = {
 }
 
 
+# calamine (Rust) lit un .xlsx 5 à 10 fois plus vite qu'openpyxl ; repli si absent.
+MOTEUR_LECTURE = "calamine" if importlib.util.find_spec("python_calamine") else "openpyxl"
+
+
 class ErreurChargement(Exception):
     """Fichier illisible ou colonnes obligatoires introuvables."""
 
@@ -40,10 +45,10 @@ def charger_excel(chemin: str | Path, feuille: str | int = 0) -> pd.DataFrame:
     if not chemin.exists():
         raise ErreurChargement(f"Fichier introuvable : {chemin}")
     try:
-        df = pd.read_excel(chemin, sheet_name=feuille, engine="openpyxl")
+        df = pd.read_excel(chemin, sheet_name=feuille, engine=MOTEUR_LECTURE)
     except Exception as exc:  # fichier corrompu, feuille absente, etc.
         raise ErreurChargement(f"Lecture impossible de {chemin} : {exc}") from exc
-    log.info("%d lignes lues dans %s", len(df), chemin)
+    log.info("%d lignes lues dans %s (moteur %s)", len(df), chemin, MOTEUR_LECTURE)
     return df.reset_index(drop=True)
 
 

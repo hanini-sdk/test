@@ -7,6 +7,7 @@ from datetime import datetime
 
 METHODE_EXACT = "exact 1-à-1"
 METHODE_CPSAT = "CP-SAT"
+METHODE_BLOCS = "CP-SAT par blocs"
 
 CREDIT = 1
 DEBIT = -1
@@ -47,6 +48,14 @@ class Parametres:
     weight_by_amount: bool = False
     workers: int = 8
     seed: int = 0
+    # Grands volumes : au-delà de `seuil_exact` mouvements, une composante est
+    # résolue par blocs (voir grande_echelle.py) plutôt que par le modèle exact.
+    seuil_exact: int = 30
+    taille_bloc: int = 300
+    taille_combinaison: int = 4
+    passes: int = 4
+    temps_bloc: float = 1.0  # limite du solveur par bloc (secondes)
+    processus: int = 0  # threads pour les blocs ; 0 = nombre de cœurs
 
     def __post_init__(self) -> None:
         if self.window_days < 0:
@@ -59,6 +68,18 @@ class Parametres:
             raise ValueError("time_limit doit être > 0")
         if self.workers < 1:
             raise ValueError("workers doit être >= 1")
+        if self.seuil_exact < 2:
+            raise ValueError("seuil_exact doit être >= 2")
+        if self.taille_bloc < 2:
+            raise ValueError("taille_bloc doit être >= 2")
+        if not 2 <= self.taille_combinaison <= 4:
+            raise ValueError("taille_combinaison doit être entre 2 et 4")
+        if self.temps_bloc <= 0:
+            raise ValueError("temps_bloc doit être > 0")
+        if self.passes < 1:
+            raise ValueError("passes doit être >= 1")
+        if self.processus < 0:
+            raise ValueError("processus doit être >= 0")
 
 
 @dataclass
@@ -104,7 +125,7 @@ class StatutComposante:
     nb_mouvements: int
     nb_debits: int
     nb_credits: int
-    statut: str  # OPTIMAL / FEASIBLE / UNKNOWN / SANS_SOLVEUR
+    statut: str  # OPTIMAL / FEASIBLE / UNKNOWN / SANS_SOLVEUR / HEURISTIQUE
     nb_reconcilies: int = 0
     nb_groupes: int = 0
     duree: float = 0.0

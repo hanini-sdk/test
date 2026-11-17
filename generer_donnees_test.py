@@ -99,13 +99,55 @@ def generer(seed: int = 42) -> pd.DataFrame:
     return df
 
 
+def generer_volume(nb_lignes: int, seed: int = 42, nb_jours: int = 365) -> pd.DataFrame:
+    """Jeu volumineux et dense (test de performance) : ~`nb_lignes` mouvements sur `nb_jours`.
+
+    Environ 55 % de paires exactes, 30 % de groupes 1-N / N-1 / N-M, 15 % d'isolés.
+    """
+    rng = random.Random(seed)
+    debut = datetime(2024, 1, 1)
+    lignes: list[dict] = []
+
+    def ajouter(montant_cents: int, sens: str, jour: int, libelle: str) -> None:
+        lignes.append({
+            "montant": montant_cents / 100,
+            "type": sens,
+            "date": debut + timedelta(days=min(max(jour, 0), nb_jours - 1)),
+            "libelle": libelle,
+        })
+
+    while len(lignes) < nb_lignes:
+        tirage = rng.random()
+        j = rng.randint(0, nb_jours - 1)
+        if tirage < 0.55:
+            montant = rng.randint(1_000, 500_000)
+            ajouter(montant, "debit", j, "paire")
+            ajouter(montant, "credit", j + rng.randint(0, 5), "paire")
+        elif tirage < 0.85:
+            nd, nc = rng.choice([(1, 2), (1, 3), (2, 1), (3, 1), (2, 2), (2, 3)])
+            total = rng.randint(20_000, 800_000)
+            for part in _decouper(total, nd, rng) if nd > 1 else [total]:
+                ajouter(part, "debit", j + rng.randint(0, 10), f"lot {nd}-{nc}")
+            for part in _decouper(total, nc, rng) if nc > 1 else [total]:
+                ajouter(part, "credit", j + rng.randint(0, 10), f"lot {nd}-{nc}")
+        else:
+            ajouter(rng.randint(1_000, 90_000) * 7 + 3, rng.choice(["debit", "credit"]), j, "isolé")
+
+    rng.shuffle(lignes)
+    df = pd.DataFrame(lignes[:nb_lignes])
+    df.insert(0, "id", [f"MVT-{i:06d}" for i in range(1, len(df) + 1)])
+    return df
+
+
 def main() -> None:
     parseur = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parseur.add_argument("--output", "-o", default="mouvements.xlsx")
     parseur.add_argument("--seed", type=int, default=42)
+    parseur.add_argument("--volume", type=int, default=0,
+                         help="Génère un jeu dense de N mouvements (test de performance)")
     args = parseur.parse_args()
 
-    df = generer(args.seed)
+    df = generer_volume(args.volume, args.seed) if args.volume else generer(args.seed)
     with pd.ExcelWriter(args.output, engine="openpyxl", datetime_format="DD/MM/YYYY") as classeur:
         df.to_excel(classeur, index=False, sheet_name="Mouvements")
     print(f"{len(df)} lignes écrites dans {args.output}")

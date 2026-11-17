@@ -53,6 +53,20 @@ def construire_parseur() -> argparse.ArgumentParser:
     metier.add_argument("--weight-by-amount", action="store_true",
                         help="Maximiser le montant réconcilié plutôt que le nombre de mouvements")
 
+    volume = p.add_argument_group("grands volumes (composantes de plus de --seuil-exact mouvements)")
+    volume.add_argument("--seuil-exact", type=int, default=30,
+                        help="Taille max d'une composante résolue par le modèle exact (défaut : %(default)s)")
+    volume.add_argument("--taille-bloc", type=int, default=300,
+                        help="Mouvements par bloc pour les grosses composantes (défaut : %(default)s)")
+    volume.add_argument("--taille-combinaison", type=int, default=4, choices=(2, 3, 4),
+                        help="Mouvements max par combinaison cherchée dans un bloc (défaut : %(default)s)")
+    volume.add_argument("--passes", type=int, default=4,
+                        help="Nombre de passes par blocs (défaut : %(default)s)")
+    volume.add_argument("--temps-bloc", type=float, default=1.0,
+                        help="Limite du solveur par bloc, en secondes (défaut : %(default)s)")
+    volume.add_argument("--processus", type=int, default=0,
+                        help="Blocs résolus en parallèle (défaut : 0 = nombre de cœurs)")
+
     colonnes = p.add_argument_group("mapping des colonnes (détection automatique par défaut)")
     for champ in CHAMPS_COLONNES:
         colonnes.add_argument(f"--col-{champ}", help=f"Nom de la colonne « {champ} »")
@@ -109,6 +123,12 @@ def main(argv: list[str] | None = None) -> int:
             weight_by_amount=args.weight_by_amount,
             workers=args.workers,
             seed=args.seed,
+            seuil_exact=args.seuil_exact,
+            taille_bloc=args.taille_bloc,
+            taille_combinaison=args.taille_combinaison,
+            passes=args.passes,
+            temps_bloc=args.temps_bloc,
+            processus=args.processus,
         )
         df = charger_excel(args.input, args.sheet)
         colonnes = resoudre_colonnes(
